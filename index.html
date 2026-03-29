@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+
+<html lang="ko">
+
+<head>
+
+  <meta charset="UTF-8" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>Sightlink Face Test</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+
+  <style>
+
+    body {
+
+      margin: 0;
+
+      background: black;
+
+      color: white;
+
+      text-align: center;
+
+      font-family: Arial, sans-serif;
+
+    }
+
+
+
+    h1 {
+
+      margin-top: 20px;
+
+      margin-bottom: 20px;
+
+      font-size: 48px;
+
+    }
+
+
+
+    .wrap {
+
+      position: relative;
+
+      display: inline-block;
+
+      margin-top: 20px;
+
+    }
+
+
+
+    video,
+
+    canvas {
+
+      width: 600px;
+
+      height: 450px;
+
+      border-radius: 10px;
+
+      transform: scaleX(-1);
+
+    }
+
+
+
+    canvas {
+
+      position: absolute;
+
+      left: 0;
+
+      top: 0;
+
+      z-index: 10;
+
+      pointer-events: none;
+
+    }
+
+
+
+    .controls {
+
+      position: fixed;
+
+      bottom: 40px;
+
+      left: 50%;
+
+      transform: translateX(-50%);
+
+    }
+
+
+
+    .controls button {
+
+      padding: 10px 20px;
+
+      margin: 0 10px;
+
+      font-size: 16px;
+
+      border-radius: 8px;
+
+      border: none;
+
+      cursor: pointer;
+
+    }
+
+
+
+    .controls button:first-child {
+
+      background: #4CAF50;
+
+      color: white;
+
+    }
+
+
+
+    .controls button:last-child {
+
+      background: #f44336;
+
+      color: white;
+
+    }
+
+  </style>
+
+</head>
+
+<body>
+
+  <h1>SIGHTLINK</h1>
+
+
+
+  <div class="wrap">
+
+    <video id="video" width="600" height="450" autoplay playsinline muted></video>
+
+  </div>
+
+
+
+  <div class="controls">
+
+    <button onclick="startCamera()">카메라 켜기</button>
+
+    <button onclick="stopCamera()">카메라 끄기</button>
+
+  </div>
+
+
+
+  <script>
+
+    const video = document.getElementById("video");
+
+    let stream = null;
+
+    let intervalId = null;
+
+    let canvas = null;
+
+    let modelsLoaded = false;
+
+
+
+    async function loadModels() {
+
+      if (modelsLoaded) return;
+
+      await faceapi.nets.tinyFaceDetector.loadFromUri("./models");
+
+      await faceapi.nets.faceLandmark68Net.loadFromUri("./models");
+
+
+
+
+      modelsLoaded = true;
+
+    }
+
+
+
+    async function startCamera() {
+
+      try {
+
+        if (stream) return;
+
+
+
+        await loadModels();
+
+
+
+        stream = await navigator.mediaDevices.getUserMedia({
+
+          video: true,
+
+          audio: false
+
+        });
+
+
+
+        video.srcObject = stream;
+
+
+
+        video.onloadedmetadata = () => {
+
+          video.play();
+
+        };
+
+      } catch (err) {
+
+        console.error(err);
+
+        alert("카메라 또는 모델 오류: " + err.message);
+
+      }
+
+    }
+
+
+
+    function stopCamera() {
+
+      if (intervalId) {
+
+        clearInterval(intervalId);
+
+        intervalId = null;
+
+      }
+
+
+
+      if (canvas) {
+
+        canvas.remove();
+
+        canvas = null;
+
+      }
+
+
+
+      if (stream) {
+
+        stream.getTracks().forEach(track => track.stop());
+
+        stream = null;
+
+      }
+
+
+
+      video.pause();
+
+      video.srcObject = null;
+
+    }
+
+      let currentDirection = "";
+
+      let stableDirection = "";
+
+      let lastChangeTime = Date.now();
+
+      let focusScore = 50;
+
+      let notLookingTime = 0;
+
+      let lastOffTime = null;
+
+      let returnTime = 0;
+
+      let wasOffCenter = false;
+
+      let heatPoints = [];
+
+
+
+
+    video.addEventListener("play", () => {
+
+     
+      if (canvas) {
+
+        canvas.remove();
+
+      }
+
+
+
+      canvas = faceapi.createCanvasFromMedia(video);
+
+      document.querySelector(".wrap").append(canvas);
+
+
+
+      const displaySize = { width: 600, height: 450 };
+
+      faceapi.matchDimensions(canvas, displaySize);
+
+
+
+      if (intervalId) {
+
+        clearInterval(intervalId);
+
+      }
+
+
+
+      intervalId = setInterval(async () => {
+
+        const detections = await faceapi
+
+          .detectAllFaces(
+
+            video,
+
+            new faceapi.TinyFaceDetectorOptions({
+
+              inputSize: 320,
+
+              scoreThreshold: 0.3
+
+            })
+
+          )
+
+          .withFaceLandmarks();
+
+
+
+        const resized = faceapi.resizeResults(detections, displaySize);
+
+        const ctx = canvas.getContext("2d");
+
+
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+
+
+        // 테스트 글자
+
+        
+
+
+        // 얼굴 박스 (직접 그리기)
+
+resized.forEach(detection => {
+
+  const box = detection.detection.box;
+
+
+
+  ctx.strokeStyle = "blue";
+
+  ctx.lineWidth = 2;
+
+  ctx.strokeRect(box.x, box.y, box.width, box.height);
+
+});
+
+
+
+resized.forEach(detection => {
+
+  const landmarks = detection.landmarks;
+
+
+
+  const leftEye = landmarks.getLeftEye();
+
+  const rightEye = landmarks.getRightEye();
+
+
+
+  const avg = (points) => {
+
+    const x = points.reduce((sum, p) => sum + p.x, 0) / points.length;
+
+    const y = points.reduce((sum, p) => sum + p.y, 0) / points.length;
+
+    return { x, y };
+
+  };
+
+  heatPoints.forEach((point, index) => {
+
+  const alpha = index / heatPoints.length;
+
+
+
+  ctx.beginPath();
+
+  ctx.arc(point.x, point.y, 8, 0, 2 * Math.PI);
+
+  ctx.fillStyle = `rgba(255, 0, 0, ${alpha * 0.06})`;
+
+  ctx.fill();
+
+});
+
+const left = avg(leftEye);
+
+const right = avg(rightEye);
+
+
+
+// 히트맵 좌표 저장
+
+const heatX = (left.x + right.x) / 2;
+
+const heatY = (left.y + right.y) / 2;
+
+
+
+heatPoints.push({ x: heatX, y: heatY });
+
+
+
+if (heatPoints.length > 120) {
+
+  heatPoints.shift();
+
+}
+
+
+
+// 시선 시작점
+
+const eyeX = heatX;
+
+const eyeY = heatY;
+
+
+
+let lineDx = 0;
+
+let lineDy = 0;
+
+
+
+if (stableDirection === "왼쪽") lineDx = 100;
+
+if (stableDirection === "오른쪽") lineDx = -100;
+
+if (stableDirection === "정면") lineDy = -80;
+
+
+
+ctx.beginPath();
+
+ctx.moveTo(eyeX, eyeY);
+
+ctx.lineTo(eyeX + lineDx, eyeY + lineDy);
+
+ctx.strokeStyle = "cyan";
+
+ctx.lineWidth = 3;
+
+ctx.stroke();
+
+
+
+// 눈 점 표시
+
+ctx.fillStyle = "red";
+
+
+
+ctx.beginPath();
+
+ctx.arc(left.x, left.y, 5, 0, 2 * Math.PI);
+
+ctx.fill();
+
+
+
+ctx.beginPath();
+
+ctx.arc(right.x, right.y, 5, 0, 2 * Math.PI);
+
+ctx.fill();
+ 
+
+let focusColor = "green";
+
+
+
+if (focusScore < 50) {
+
+  focusColor = "red";
+
+} else if (focusScore < 80) {
+
+  focusColor = "yellow";
+
+}
+
+ctx.save();
+
+ctx.scale(-1, 1);
+
+
+ctx.fillStyle = focusColor;
+
+ctx.font = "20px Arial";
+
+ctx.fillText("집중도: " + Math.round(focusScore), -180, 60);
+
+
+ctx.restore();
+
+
+
+
+
+
+const box = detection.detection.box;
+
+const faceCenterX = box.x + box.width / 2;
+
+const eyeCenterX = (left.x + right.x) / 2;
+
+
+
+// 방향 계산
+
+let direction = "";
+
+
+
+if (eyeCenterX < faceCenterX - 15) {
+
+  direction = "오른쪽";
+
+} else if (eyeCenterX > faceCenterX + 15) {
+
+  direction = "왼쪽";
+
+} else {
+
+  direction = "정면";
+
+}
+if (direction !== currentDirection) {
+
+  currentDirection = direction;
+
+  lastChangeTime = Date.now();
+
+}
+
+
+
+if (Date.now() - lastChangeTime > 300) {
+
+  stableDirection = currentDirection;
+
+}
+
+if (stableDirection !== "정면") {
+
+  notLookingTime += 150;
+
+} else {
+
+  notLookingTime = 0;
+
+}
+
+if (stableDirection !== "정면") {
+
+  if (!wasOffCenter) {
+
+    lastOffTime = Date.now();
+
+    wasOffCenter = true;
+
+  }
+
+} else {
+
+  if (wasOffCenter && lastOffTime !== null) {
+
+    returnTime = Date.now() - lastOffTime;
+
+  }
+
+  lastOffTime = null;
+
+  wasOffCenter = false;
+
+}
+
+
+
+
+
+
+if (notLookingTime > 3000) {
+
+  ctx.save();
+
+  ctx.scale(-1, 1);
+
+  ctx.fillStyle = "red";
+
+  ctx.font = "30px Arial";
+
+  ctx.fillText("⚠️ 집중하세요", -350, 30);
+
+  ctx.restore();
+
+}
+
+
+
+if (stableDirection !== "정면") {
+
+  notLookingTime += 1;
+
+}
+
+
+
+if (stableDirection !== "정면" && !wasOffCenter) {
+
+  lastOffTime = Date.now();
+
+  wasOffCenter = true;
+
+}
+
+
+
+if (stableDirection === "정면" && wasOffCenter) {
+
+  returnTime = Date.now() - lastOffTime;
+
+  wasOffCenter = false;
+
+}
+
+
+
+focusScore = 100
+
+  - notLookingTime * 0.05
+
+  - returnTime * 0.001;
+
+
+
+if (focusScore < 0) focusScore = 0;
+
+if (focusScore > 100) focusScore = 100;
+
+
+
+
+
+ctx.save();
+
+ctx.scale(-1, 1);
+
+ctx.fillStyle = "yellow";
+
+ctx.font = "24px Arial";
+
+ctx.fillText(stableDirection, -(box.x + box.width), box.y - 10);
+
+ctx.restore();
+
+
+
+
+
+
+ctx.save();
+
+ctx.scale(-1, 1);
+
+if (returnTime < 1000) {
+
+  ctx.fillStyle = "lime";
+
+} else if (returnTime < 2000) {
+
+  ctx.fillStyle = "yellow";
+
+} else {
+
+  ctx.fillStyle = "red";
+
+}
+
+
+
+ctx.font = "20px Arial";
+
+
+
+ctx.fillText(
+
+  "복귀시간: " + (Math.floor(returnTime / 100) / 10) + "초",
+
+  -180,
+
+  120
+
+);
+
+
+
+ctx.restore();
+
+
+
+});
+
+
+
+      }, 150);
+
+    });
+
+  </script>
+
+</body>
+
+</html>
+
+
